@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IVY AI - Agentic Research Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        :root {
+            --bg-primary: #111827; /* Dark Gray */
+            --bg-secondary: #1F2937; /* Lighter Dark Gray */
+            --accent-primary: #10B981; /* Emerald Green */
+            --accent-secondary: #059669; /* Darker Green */
+            --text-primary: #F3F4F6; /* Light Gray */
+            --text-secondary: #9CA3AF; /* Medium Gray */
+            --border-color: #374151;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        /* Custom Loader Animation */
+        .loader-container {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+        }
+        .loader-dot {
+            height: 1rem;
+            width: 1rem;
+            background-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: pulse 1.4s ease-in-out infinite both;
+        }
+        .loader-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loader-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes pulse {
+            0%, 80%, 100% { transform: scale(0.3); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Modern Details/Summary (Accordion) Styling */
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+        details summary .chevron { transition: transform 0.2s ease-in-out; }
+        details[open] summary .chevron { transform: rotate(180deg); }
+        
+        /* Custom Input Styling */
+        .form-input {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
+        }
+        .form-input::placeholder { color: var(--text-secondary); }
+        .mono-font { font-family: 'Source Code Pro', monospace; }
+
+        /* --- NEW: Interactive Button Wrapper --- */
+        .interactive-button-wrapper {
+            position: relative;
+            background: linear-gradient(to right, var(--border-color), var(--accent-secondary), var(--border-color));
+            transition: all 0.3s ease-in-out;
+            padding: 2px; /* Controls the thickness of the "border" */
+        }
+        .interactive-button-wrapper:hover {
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.5); /* Green glow */
+            transform: scale(1.01); /* Slight pop effect */
+        }
+        #ask-btn.disabled-btn {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        #ask-btn.disabled-btn:hover {
+             background-color: var(--bg-secondary) !important;
+        }
+        
+        .transition-all { transition: all 0.2s ease-in-out; }
+    </style>
+</head>
+<body class="antialiased">
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl min-h-screen">
+        
+        <header class="text-center mb-10">
+            <h1 class="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-emerald-400">
+                Ivy AI
+            </h1>
+            <p class="text-lg text-gray-400 mt-2">Your Agentic Research Assistant 🧠</p>
+        </header>
+
+        <div class="bg-secondary p-6 rounded-2xl shadow-2xl space-y-6 border border-gray-700">
+            <div>
+                <label for="prompt-input" class="block text-lg font-medium text-gray-300 mb-2">Your Research Query:</label>
+                <textarea id="prompt-input" rows="4" class="w-full p-3 rounded-lg form-input" placeholder="e.g., 'What is the LoRA technique for fine-tuning LLMs and who invented it?'"></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <input type="password" id="gemini-api-key" class="w-full p-3 rounded-lg form-input mono-font" placeholder="Enter Gemini API Key">
+                 <input type="text" id="ollama-model" class="w-full p-3 rounded-lg form-input mono-font" value="llama3.2:3b" placeholder="Ollama Model Name">
+            </div>
+            
+            <div class="interactive-button-wrapper rounded-lg">
+                <button id="ask-btn" class="w-full bg-secondary text-white font-bold py-3 px-4 rounded-md hover:bg-gray-700 focus:outline-none transition-all duration-300 ease-in-out">
+                    Ask Ivy
+                </button>
+            </div>
+        </div>
+
+        <div id="loading-indicator" class="hidden flex flex-col items-center justify-center my-8">
+            <div class="loader-container">
+                <span class="loader-dot"></span>
+                <span class="loader-dot"></span>
+                <span class="loader-dot"></span>
+            </div>
+            <p id="loading-text" class="text-gray-400 mt-4 text-center"></p>
+        </div>
+        <div id="message-box" class="hidden p-4 my-6 text-sm text-red-300 bg-red-900/50 border border-red-500/50 rounded-lg" role="alert">
+            <span class="font-medium">Error!</span> <span id="message-content"></span>
+        </div>
+
+        <div id="results-container" class="mt-10 space-y-8 hidden">
+            <div id="final-answer-container">
+                <h2 class="text-3xl font-bold text-white mb-4">Synthesized Answer</h2>
+                <div class="bg-secondary p-6 rounded-2xl border border-gray-700">
+                    <div id="final-answer" class="text-gray-200 whitespace-pre-wrap leading-relaxed"></div>
+                </div>
+            </div>
+            
+            <div id="sources-container">
+                <details class="bg-secondary p-6 rounded-2xl shadow-lg border border-gray-700" open>
+                    <summary class="text-xl font-bold text-gray-200 cursor-pointer hover:text-white flex justify-between items-center">
+                        <span>Research Sources</span>
+                        <svg class="chevron w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </summary>
+                    <div id="publications-list" class="mt-6 space-y-4 border-t border-gray-700 pt-6">
+                        </div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        // These constants reference the input fields and the main button.
+        //cost gets the element id from the html file
+        const promptInput = document.getElementById('prompt-input'); // The textarea for the user's query.
+        const geminiApiKeyInput = document.getElementById('gemini-api-key'); // The input for the Gemini API key.
+        const ollamaModelInput = document.getElementById('ollama-model'); // The input for the Ollama model name.
+        const askBtn = document.getElementById('ask-btn'); // The "Ask Ivy" button that triggers the process.
+
+        // These constants reference UI elements used for feedback, like loaders and messages.
+        const loadingIndicator = document.getElementById('loading-indicator'); // The container for the loading animation.
+        const loadingText = document.getElementById('loading-text'); // The text displayed below the loader (e.g., "Thinking...").
+        const messageBox = document.getElementById('message-box'); // The container for displaying error messages.
+        const messageContent = document.getElementById('message-content'); // The specific element where the error text is written.
+
+        // These constants reference the containers where the final results will be displayed.
+        const resultsContainer = document.getElementById('results-container'); // The main wrapper for all results.
+        const finalAnswerContainer = document.getElementById('final-answer-container'); // Wrapper for the synthesized answer.
+        const finalAnswer = document.getElementById('final-answer'); // The element to display the final text answer.
+        const sourcesContainer = document.getElementById('sources-container'); // Wrapper for the list of sources.
+        const publicationsList = document.getElementById('publications-list'); // The list where publication cards are added.
+
+
+        // --- Event Listener ---
+        // This sets up the main interaction: when the user clicks the "Ask Ivy" button, it triggers the handleAgenticQuery function.
+        askBtn.addEventListener('click', handleAgenticQuery);
+
+        // --- Main Handler ---
+        async function handleAgenticQuery() {
+            //Get user inputs and remove leading/trailing whitespace.
+            const query = promptInput.value.trim();
+            const geminiApiKey = geminiApiKeyInput.value.trim();
+            const ollamaModel = ollamaModelInput.value.trim();
+
+            //Validate inputs: if any field is empty, show a message and exit the function.
+            if (!query || !geminiApiKey || !ollamaModel) {
+                showMessage("Please fill in your query, Gemini API key, and Ollama model name.");
+                return;
+            }
+
+            // --- Reset UI ---
+            hideMessage(); // Hide any previous error messages.
+            resultsContainer.classList.add('hidden'); // Hide the results container.
+            publicationsList.innerHTML = ''; // Clear the list of publications.
+            finalAnswer.innerHTML = ''; // Clear the final answer area.;
+
+            //This try block encapsulates the entire agentic workflow, ensuring that any errors are caught and handled gracefully.
+            try {
+                // --- STEP 1: Gemini Research ---
+                setLoading(true, "Step 1/2: Finding research with Gemini..."); // setLoading is a helper function to manage the loading state.
+                const geminiResult = await callGeminiApi(query, geminiApiKey); // Call Gemini API to get research publications
+                // Basic validation for API response structure
+                if (!geminiResult.candidates || !geminiResult.candidates[0].content.parts[0].text) {
+                    throw new Error("Invalid response structure from Gemini API.");
+                }
+
+                // The API returns a JSON string, so we parse it into a JavaScript object.
+                const data = JSON.parse(geminiResult.candidates[0].content.parts[0].text);
+                
+                //returns nothing if no publications found and stops the function
+                if (!data || !data.publications || data.publications.length === 0) {
+                    showMessage("Gemini finished, but no relevant publications were found for your query.");
+                    setLoading(false);
+                    return;
+                }
+                //If publications were found, store them and display them on the page.
+                const publications = data.publications;
+                displayPublications(publications);
+
+                // --- STEP 2: Ollama RAG Synthesis ---
+                setLoading(true, "Step 2/2: Synthesizing answer with Ollama...");
+                // Call Ollama with the user's query and the publications as context to get a synthesized answer.
+                const ollamaResponse = await getOllamaRAGResponse(query, ollamaModel, publications);
+                
+                // Display the synthesized answer on the page.
+                finalAnswer.textContent = ollamaResponse;
+                resultsContainer.classList.remove('hidden');
+            
+            // If any error occurs during the process, it is caught here and an error message is displayed to the user.
+            } catch (error) {
+                console.error('An error occurred during the agentic workflow:', error);
+                showMessage(error.message || "An unknown error occurred.");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // --- MODIFIED: Function now creates a link element if a URL is present ---
+        // This function takes the list of publications and creates HTML cards for each, displaying them in the publicationsList container.
+        function displayPublications(publications) {
+            publicationsList.innerHTML = ''; // Clear previous results
+
+            // Iterate over each publication and create a card for it.
+            publications.forEach(pub => {
+                const authors = Array.isArray(pub.authors) ? pub.authors.join(', ') : 'N/A';
+                
+                // Create a link element if a URL is provided
+                const linkElement = pub.url
+
+                // If pub.url exists and is a non-empty string, create the link element; otherwise, it's an empty string.
+                    ? `<a href="${pub.url}" target="_blank" rel="noopener noreferrer" class="text-sm text-emerald-400 hover:text-emerald-300 hover:underline inline-flex items-center space-x-1">
+                         <span>Read Paper</span>
+                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                       </a>`
+                    : '';
+                
+                // Create the HTML structure for the publication card.
+                const card = `
+                    <div class="bg-gray-800 p-4 rounded-lg border-l-4 border-accent-primary hover:shadow-lg hover:border-emerald-400 transition-all">
+                        <h4 class="font-bold text-lg text-emerald-300">${pub.title || 'N/A'}</h4>
+                        <div class="flex justify-between items-center mt-1">
+                           <p class="text-sm text-gray-400"><strong>Date:</strong> ${pub.publication_date || 'N/A'}</p>
+                           ${linkElement}
+                        </div>
+                        <p class="text-sm text-gray-400 mt-2"><strong>Authors:</strong> ${authors}</p>
+                        <p class="text-gray-300 mt-2 leading-relaxed">${pub.summary || 'N/A'}</p>
+                    </div>
+                `;
+                publicationsList.innerHTML += card;
+            });
+        }
+        
+        // --- API Call Functions ---
+        // This function performs a fetch request with exponential backoff for retries in case of transient errors.
+        async function fetchWithBackoff(url, options, maxRetries = 3) { // Default to 3 retries
+            let attempt = 0; // Current attempt count
+            let delay = 1000; //we add a 1 second delay to avoid hitting rate limits. Rate limits are set by the API provider.
+
+            // Loop until the maximum number of retries is reached
+            while (attempt < maxRetries) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorData.error?.message || ''}`);
+                    }
+                    return response.json();
+                } catch (error) {
+                    attempt++;
+                    if (attempt >= maxRetries) throw error;
+                    console.warn(`Attempt ${attempt} failed. Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        // --- MODIFIED: System prompt now asks for a URL ---
+        async function callGeminiApi(query, apiKey) {
+            const model = 'gemini-2.5-pro';
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            const payload = {
+                "contents": [{"parts": [{"text": query}]}],
+                "generationConfig": { "temperature": 0.2, "responseMimeType": "application/json" },
+                "systemInstruction": { "parts": [{"text": `You are a specialized academic research assistant. 🔬 Your sole purpose is to find and summarize 3-5 key research publications on a given topic and return them in a structured JSON format. Find publications from sources like Google Scholar, arXiv, PubMed, ACM, and IEEE. For each publication, extract the title, a list of authors, the publication date, a concise summary, and a direct URL to the publication page (e.g., arXiv, ACM, IEEE page). Return your findings as a SINGLE JSON object with one key: "publications", which is a list of objects. Adhere strictly to this schema. Do not add any text outside the JSON object. Example JSON Output: { "publications": [ { "title": "Attention Is All You Need", "authors": ["Ashish Vaswani", "Noam Shazeer", "..."], "publication_date": "2017-06-12", "summary": "This paper introduces the Transformer...", "url": "https://arxiv.org/abs/1706.03762" } ] }` }] },
+            };
+
+            // Call the fetchWithBackoff function to make the API request with retries.
+            return fetchWithBackoff(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        }
+
+        // --- MODIFIED: Context now includes the URL ---
+        // This function sends a prompt to the Ollama API along with the publications as context and retrieves a synthesized answer.
+        // Ollama must be running locally for this to work.
+        async function getOllamaRAGResponse(question, model, publications) {
+            const ollamaUrl = 'http://localhost:11434/api/generate';
+
+            // Format the publications into a readable context string
+            let context = publications.map((pub, i) => {
+                const authors = Array.isArray(pub.authors) ? pub.authors.join(', ') : 'N/A';
+                return `Publication ${i+1}:\nTitle: ${pub.title}\nAuthors: ${authors}\nDate: ${pub.publication_date}\nURL: ${pub.url || 'N/A'}\nSummary: ${pub.summary}`;
+            }).join('\n\n---\n\n');
+
+            // Essentially tells the model to only use the provided context to answer the question.
+            const fullPrompt = `You are an expert research assistant. Answer the user's question based ONLY on the following context. If the answer is not in the context, say so. Do not use outside knowledge.
+Context:
+${context}
+User's Question: ${question}`;
+
+            // Make the API request to Ollama
+            try {
+                const response = await fetch(ollamaUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: model, prompt: fullPrompt, stream: false }) });
+                if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.error || "Ollama request failed"); }
+                const data = await response.json();
+                return data.response;
+            } catch (error) {
+                console.error("Ollama Error:", error);
+                throw new Error(`Error connecting to Ollama: ${error.message}. Make sure Ollama is running.`);
+            }
+        }
+        
+        // --- UI Helpers ---
+        function showMessage(message) {
+            messageContent.textContent = message; // Set the message text
+            messageBox.classList.remove('hidden'); // Show the message box
+        }
+
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        function setLoading(isLoading, text = "Thinking...") {
+            if (isLoading) {
+                loadingText.textContent = text;
+                loadingIndicator.classList.remove('hidden');
+                askBtn.disabled = true;
+                askBtn.classList.add('disabled-btn');
+            } else {
+                loadingIndicator.classList.add('hidden');
+                askBtn.disabled = false;
+                askBtn.classList.remove('disabled-btn');
+            }
+        }
+    </script>
+</body>
+</html>
